@@ -2,8 +2,7 @@
 const db = require('../config/db');
 
 class Attraction {
-  // ... method findAll, findById, searchByName biarkan ...
-
+  // Ambil semua data (bisa filter verified only)
   static async findAll(category, verifiedOnly = true) {
     let query = `
       SELECT a.*, c.name as category_name, u.username as submitted_by_username
@@ -16,13 +15,12 @@ class Attraction {
       query += ` WHERE a.is_verified = true`;
     }
     
-    // Simple filter category logic if needed...
-    
     query += ` ORDER BY a.created_at DESC`;
     const result = await db.query(query, params);
     return result.rows;
   }
 
+  // Cari berdasarkan ID
   static async findById(id) {
     const query = `
       SELECT a.*, c.name as category_name, u.username as submitted_by_username
@@ -35,6 +33,7 @@ class Attraction {
     return result.rows[0];
   }
 
+  // Search by Name
   static async searchByName(q) {
     const query = `
       SELECT a.*, c.name as category_name 
@@ -46,6 +45,7 @@ class Attraction {
     return result.rows;
   }
 
+  // Nearby (Geospatial)
   static async getByCoordinates(lat, lng, radiusKm) {
     const query = `
       SELECT *, 
@@ -64,6 +64,7 @@ class Attraction {
     const { name, description, lat, lng, address, category, submitted_by } = data;
     
     // Cari ID kategori berdasarkan nama (food/fun/hotels)
+    // Default ke 1 jika tidak ketemu
     const catRes = await db.query('SELECT id FROM categories WHERE name = $1', [category.toLowerCase()]);
     const category_id = catRes.rows[0] ? catRes.rows[0].id : 1; 
 
@@ -77,8 +78,12 @@ class Attraction {
     return result.rows[0];
   }
 
-  // ... method rekomendasi (createRecommendation, approve, reject, delete) biarkan ada ...
-  
+  // Hapus Data
+  static async delete(id) {
+    await db.query('DELETE FROM attractions WHERE id = $1', [id]);
+  }
+
+  // === USER RECOMMENDATIONS (FLOW USER BIASA) ===
   static async createRecommendation(data) {
     const { name, description, lat, lng, address, category, submitted_by } = data;
     const query = `
@@ -140,10 +145,6 @@ class Attraction {
       `UPDATE user_recommendations SET status = 'rejected', reviewed_by = $1 WHERE id = $2`,
       [adminId, recId]
     );
-  }
-
-  static async delete(id) {
-    await db.query('DELETE FROM attractions WHERE id = $1', [id]);
   }
 }
 
