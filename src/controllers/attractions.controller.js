@@ -1,7 +1,7 @@
 // src/controllers/attractions.controller.js
 const Attraction = require('../models/attraction.model');
 
-// === BAGIAN PUBLIC & USER ===
+// === PUBLIC & USER ===
 
 exports.getMedanAttractions = async (req, res) => {
   try {
@@ -26,7 +26,6 @@ exports.getMedanAttractions = async (req, res) => {
 
     res.json({ status: 'success', data: groupedData });
   } catch (error) {
-    console.error('Error getting attractions:', error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
@@ -54,8 +53,8 @@ exports.searchAttractions = async (req, res) => {
 exports.getNearbyAttractions = async (req, res) => {
   try {
     const { lat, lng, radius } = req.query;
-    if (!lat || !lng) return res.status(400).json({ status: 'error', message: 'Lat and Lng are required' });
-    const nearby = await Attraction.getByCoordinates(parseFloat(lat), parseFloat(lng), radius ? parseFloat(radius) : 5);
+    if (!lat || !lng) return res.status(400).json({ status: 'error', message: 'Lat/Lng required' });
+    const nearby = await Attraction.getByCoordinates(parseFloat(lat), parseFloat(lng), radius || 5);
     res.json({ status: 'success', count: nearby.length, data: nearby });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
@@ -65,7 +64,7 @@ exports.getNearbyAttractions = async (req, res) => {
 exports.getAttractionById = async (req, res) => {
   try {
     const attraction = await Attraction.findById(req.params.id);
-    if (!attraction) return res.status(404).json({ status: 'error', message: 'Attraction not found' });
+    if (!attraction) return res.status(404).json({ status: 'error', message: 'Not found' });
     res.json({ status: 'success', data: attraction });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
@@ -75,21 +74,18 @@ exports.getAttractionById = async (req, res) => {
 exports.submitRecommendation = async (req, res) => {
   try {
     const { name, description, lat, lng, address, category } = req.body;
-    if (!name || !lat || !lng || !category) {
-      return res.status(400).json({ status: 'error', message: 'Data tidak lengkap.' });
-    }
     const payload = {
-      name, description, lat, lng, address, category, 
+      name, description, lat, lng, address, category,
       submitted_by: req.user ? req.user.id : null
     };
     const newRec = await Attraction.createRecommendation(payload);
-    res.status(201).json({ status: 'success', message: 'Rekomendasi dikirim!', data: newRec });
+    res.status(201).json({ status: 'success', message: 'Terkirim! Menunggu verifikasi admin.', data: newRec });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-// === BAGIAN ADMIN (BARU) ===
+// === ADMIN ACTIONS ===
 
 exports.getPendingRecommendations = async (req, res) => {
   try {
@@ -103,14 +99,11 @@ exports.getPendingRecommendations = async (req, res) => {
 exports.approveRecommendation = async (req, res) => {
   try {
     const { id } = req.params;
-    // Mapping kategori string ke ID (1=food, 2=fun, 3=hotels)
-    const categoryMap = { 'food': 1, 'fun': 2, 'hotels': 3 };
-    const catId = req.body.category_id || 1; // Default ke 1 jika tidak ada
-    
+    const catId = req.body.category_id || 1; 
     const result = await Attraction.approveRecommendation(id, catId, req.user.id);
     
     if (result.success) {
-      res.json({ status: 'success', message: 'Rekomendasi disetujui!', data: result.attraction });
+      res.json({ status: 'success', message: 'Disetujui!', data: result.attraction });
     } else {
       res.status(400).json({ status: 'error', message: result.message });
     }
@@ -123,13 +116,27 @@ exports.rejectRecommendation = async (req, res) => {
   try {
     const { id } = req.params;
     await Attraction.rejectRecommendation(id, req.user.id);
-    res.json({ status: 'success', message: 'Rekomendasi ditolak.' });
+    res.json({ status: 'success', message: 'Ditolak.' });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-// Stub functions
-exports.createAttraction = async (req, res) => { res.json({message: "Not implemented"}) };
+// FITUR BARU: HAPUS ATRAKSI
+exports.deleteAttraction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Asumsi di Model ada method delete. Jika belum, pakai query raw di sini juga bisa:
+    // await require('../config/db').query('DELETE FROM attractions WHERE id = $1', [id]);
+    
+    // Tapi sebaiknya pakai Model wrapper:
+    await Attraction.delete(id); 
+    
+    res.json({ status: 'success', message: 'Data berhasil dihapus permanen.' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
+exports.createAttraction = async (req, res) => { res.json({message: "Use recommendation flow"}) };
 exports.updateAttraction = async (req, res) => { res.json({message: "Not implemented"}) };
-exports.deleteAttraction = async (req, res) => { res.json({message: "Not implemented"}) };
