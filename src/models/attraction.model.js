@@ -1,39 +1,31 @@
-// PERBAIKAN: require dari config/db bukan ./db
+// src/models/attraction.model.js
 const db = require('../config/db');
 
 class Attraction {
-  static async findAll(category = null, verifiedOnly = true) {
+  // ... method findAll, findById, searchByName biarkan ...
+
+  static async findAll(category, verifiedOnly = true) {
     let query = `
-      SELECT a.*, c.name as category_name, c.emoji as category_emoji, c.color as category_color,
-             u.username as submitted_by_username
+      SELECT a.*, c.name as category_name, u.username as submitted_by_username
       FROM attractions a
       JOIN categories c ON a.category_id = c.id
       LEFT JOIN users u ON a.submitted_by = u.id
-      WHERE 1=1
     `;
     const params = [];
-    let paramCount = 1;
-    
     if (verifiedOnly) {
-      query += ` AND a.is_verified = TRUE`;
+      query += ` WHERE a.is_verified = true`;
     }
     
-    if (category) {
-      query += ` AND c.name = $${paramCount}`;
-      params.push(category);
-      paramCount++;
-    }
+    // Simple filter category logic if needed...
     
-    query += ' ORDER BY a.created_at DESC';
-    
+    query += ` ORDER BY a.created_at DESC`;
     const result = await db.query(query, params);
     return result.rows;
   }
 
   static async findById(id) {
     const query = `
-      SELECT a.*, c.name as category_name, c.emoji as category_emoji, c.color as category_color,
-             u.username as submitted_by_username
+      SELECT a.*, c.name as category_name, u.username as submitted_by_username
       FROM attractions a
       JOIN categories c ON a.category_id = c.id
       LEFT JOIN users u ON a.submitted_by = u.id
@@ -43,238 +35,115 @@ class Attraction {
     return result.rows[0];
   }
 
-  static async searchByName(query, category = null) {
-    let sql = `
-      SELECT a.*, c.name as category_name, c.emoji as category_emoji, c.color as category_color
+  static async searchByName(q) {
+    const query = `
+      SELECT a.*, c.name as category_name 
       FROM attractions a
       JOIN categories c ON a.category_id = c.id
-      WHERE LOWER(a.name) LIKE LOWER($1) AND a.is_verified = TRUE
+      WHERE (a.name ILIKE $1 OR a.description ILIKE $1) AND a.is_verified = true
     `;
-    const params = [`%${query}%`];
-    
-    if (category) {
-      sql += ' AND c.name = $2';
-      params.push(category);
-    }
-    
-    sql += ' ORDER BY a.name LIMIT 20';
-    
-    const result = await db.query(sql, params);
+    const result = await db.query(query, [`%${q}%`]);
     return result.rows;
   }
 
-  static async create(attractionData) {
-    const { name, description, lat, lng, address, rating = 0.0, is_verified = false, submitted_by, category_id } = attractionData;
-    
+  static async getByCoordinates(lat, lng, radiusKm) {
     const query = `
-      INSERT INTO attractions (name, description, lat, lng, address, rating, is_verified, submitted_by, category_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
+      SELECT *, 
+      ( 6371 * acos( cos( radians($1) ) * cos( radians( lat ) ) * cos( radians( lng ) - radians($2) ) + sin( radians($1) ) * sin( radians( lat ) ) ) ) AS distance 
+      FROM attractions 
+      WHERE is_verified = true
+      AND ( 6371 * acos( cos( radians($1) ) * cos( radians( lat ) ) * cos( radians( lng ) - radians($2) ) + sin( radians($1) ) * sin( radians( lat ) ) ) ) < $3
+      ORDER BY distance ASC
     `;
-    
-    const result = await db.query(query, [
-      name, description, lat, lng, address, rating, 
-      is_verified, submitted_by, category_id
-    ]);
-    return result.rows[0];
+    const result = await db.query(query, [lat, lng, radiusKm]);
+    return result.rows;
   }
 
-  static async createRecommendation(recommendationData) {
-    const { name, description, lat, lng, address, category, submitted_by } = recommendationData;
+  // === FITUR BARU: CREATE LANGSUNG (ADMIN) ===
+  static async create(data) {
+    const { name, description, lat, lng, address, category, submitted_by } = data;
     
+    // Cari ID kategori berdasarkan nama (food/fun/hotels)
+    const catRes = await db.query('SELECT id FROM categories WHERE name = $1', [category.toLowerCase()]);
+    const category_id = catRes.rows[0] ? catRes.rows[0].id : 1; 
+
     const query = `
-      INSERT INTO user_recommendations (name, description, lat, lng, address, category, submitted_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO attractions (name, description, lat, lng, address, category_id, submitted_by, is_verified)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, true)
       RETURNING *
     `;
-    
-    const result = await db.query(query, [
-      name, description, lat, lng, address, category, submitted_by
-    ]);
-    return result.rows[0];
-  }
-
-  static async update(id, attractionData) {
-    const fields = [];
-    const values = [];
-    let paramCount = 1;
-
-    Object.keys(attractionData).forEach(key => {
-      if (attractionData[key] !== undefined) {
-        fields.push(`${key} = $${paramCount}`);
-        values.push(attractionData[key]);
-        paramCount++;
-      }
-    });
-
-    values.push(id);
-    const query = `
-      UPDATE attractions 
-      SET ${fields.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `;
-
+    const values = [name, description, lat, lng, address, category_id, submitted_by];
     const result = await db.query(query, values);
     return result.rows[0];
   }
 
-  static async delete(id) {
-    const query = 'DELETE FROM attractions WHERE id = $1 RETURNING *';
-    const result = await db.query(query, [id]);
-    return result.rows[0];
-  }
-
-  static async getByCoordinates(lat, lng, radius = 5) {
-    // Earth's radius in kilometers
-    const earthRadius = 6371;
-    
+  // ... method rekomendasi (createRecommendation, approve, reject, delete) biarkan ada ...
+  
+  static async createRecommendation(data) {
+    const { name, description, lat, lng, address, category, submitted_by } = data;
     const query = `
-      SELECT a.*, c.name as category_name, c.emoji as category_emoji, c.color as category_color,
-        (${earthRadius} * acos(
-          cos(radians($1)) * cos(radians(lat)) *
-          cos(radians(lng) - radians($2)) +
-          sin(radians($1)) * sin(radians(lat))
-        )) AS distance
-      FROM attractions a
-      JOIN categories c ON a.category_id = c.id
-      WHERE a.is_verified = TRUE AND (${earthRadius} * acos(
-        cos(radians($1)) * cos(radians(lat)) *
-        cos(radians(lng) - radians($2)) +
-        sin(radians($1)) * sin(radians(lat))
-      )) < $3
-      ORDER BY distance
-      LIMIT 50
+      INSERT INTO user_recommendations (name, description, lat, lng, address, category, submitted_by, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+      RETURNING *
     `;
-    
-    const result = await db.query(query, [lat, lng, radius]);
-    return result.rows;
+    const result = await db.query(query, [name, description, lat, lng, address, category, submitted_by]);
+    return result.rows[0];
   }
 
   static async getPendingRecommendations() {
     const query = `
-      SELECT ur.*, u.username as submitted_by_username, u.email as submitted_by_email
-      FROM user_recommendations ur
-      JOIN users u ON ur.submitted_by = u.id
-      WHERE ur.status = 'pending'
-      ORDER BY ur.created_at DESC
+      SELECT r.*, u.username as submitted_by_username 
+      FROM user_recommendations r
+      LEFT JOIN users u ON r.submitted_by = u.id
+      WHERE r.status = 'pending'
+      ORDER BY r.created_at DESC
     `;
-    
     const result = await db.query(query);
     return result.rows;
   }
 
-  static async approveRecommendation(recommendationId, categoryId, reviewedBy, notes = '') {
-    // Start transaction
-    const client = await db.pool.connect();
-    
+  static async approveRecommendation(recId, categoryId, adminId) {
+    const client = await db.connect();
     try {
       await client.query('BEGIN');
       
-      // Get the recommendation
-      const getRecQuery = `
-        SELECT * FROM user_recommendations 
-        WHERE id = $1 AND status = 'pending' 
-        FOR UPDATE
-      `;
-      const recResult = await client.query(getRecQuery, [recommendationId]);
-      
-      if (recResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return { success: false, message: 'Recommendation not found or already processed' };
-      }
-      
-      const recommendation = recResult.rows[0];
-      
-      // Create attraction from recommendation
-      const createAttractionQuery = `
-        INSERT INTO attractions (name, description, lat, lng, address, rating, is_verified, submitted_by, category_id)
-        VALUES ($1, $2, $3, $4, $5, 0.0, TRUE, $6, $7)
+      const recRes = await client.query('SELECT * FROM user_recommendations WHERE id = $1', [recId]);
+      const rec = recRes.rows[0];
+      if (!rec) throw new Error('Recommendation not found');
+
+      const insertQuery = `
+        INSERT INTO attractions (name, description, lat, lng, address, category_id, submitted_by, is_verified)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
         RETURNING *
       `;
-      
-      const attractionResult = await client.query(createAttractionQuery, [
-        recommendation.name,
-        recommendation.description,
-        recommendation.lat,
-        recommendation.lng,
-        recommendation.address,
-        recommendation.submitted_by,
-        categoryId
+      const attraction = await client.query(insertQuery, [
+        rec.name, rec.description, rec.lat, rec.lng, rec.address, categoryId, rec.submitted_by
       ]);
-      
-      // Update recommendation status
-      const updateRecQuery = `
-        UPDATE user_recommendations 
-        SET status = 'approved', reviewed_by = $1, review_notes = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3
-        RETURNING *
-      `;
-      
-      const updatedRecResult = await client.query(updateRecQuery, [
-        reviewedBy, notes, recommendationId
-      ]);
-      
+
+      await client.query(
+        `UPDATE user_recommendations SET status = 'approved', reviewed_by = $1, review_notes = 'Approved' WHERE id = $2`,
+        [adminId, recId]
+      );
+
       await client.query('COMMIT');
-      
-      return {
-        success: true,
-        recommendation: updatedRecResult.rows[0],
-        attraction: attractionResult.rows[0]
-      };
-      
-    } catch (error) {
+      return { success: true, attraction: attraction.rows[0] };
+    } catch (e) {
       await client.query('ROLLBACK');
-      throw error;
+      throw e;
     } finally {
       client.release();
     }
   }
 
-  static async rejectRecommendation(recommendationId, reviewedBy, notes = '') {
-    const query = `
-      UPDATE user_recommendations 
-      SET status = 'rejected', reviewed_by = $1, review_notes = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3 AND status = 'pending'
-      RETURNING *
-    `;
-    
-    const result = await db.query(query, [reviewedBy, notes, recommendationId]);
-    return result.rows[0];
+  static async rejectRecommendation(recId, adminId) {
+    await db.query(
+      `UPDATE user_recommendations SET status = 'rejected', reviewed_by = $1 WHERE id = $2`,
+      [adminId, recId]
+    );
   }
 
-  static async getUserRecommendations(userId) {
-    const query = `
-      SELECT ur.*, c.name as category_name, c.emoji as category_emoji, c.color as category_color
-      FROM user_recommendations ur
-      LEFT JOIN categories c ON ur.category = c.name
-      WHERE ur.submitted_by = $1
-      ORDER BY ur.created_at DESC
-    `;
-    
-    const result = await db.query(query, [userId]);
-    return result.rows;
-  }
-
-  static async getStats() {
-    const query = `
-      SELECT 
-        COUNT(*) as total_attractions,
-        SUM(CASE WHEN is_verified THEN 1 ELSE 0 END) as verified_count,
-        COUNT(DISTINCT submitted_by) as unique_contributors
-      FROM attractions
-      
-      UNION ALL
-      
-      SELECT 
-        COUNT(*) as total_recommendations,
-        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_count,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count
-      FROM user_recommendations
-    `;
-    
-    const result = await db.query(query);
-    return result.rows;
+  static async delete(id) {
+    await db.query('DELETE FROM attractions WHERE id = $1', [id]);
   }
 }
 
