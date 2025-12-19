@@ -1,7 +1,7 @@
 // src/controllers/attractions.controller.js
 const Attraction = require('../models/attraction.model');
 
-// === PUBLIC & USER ===
+// === PUBLIC READ ===
 
 exports.getMedanAttractions = async (req, res) => {
   try {
@@ -71,6 +71,8 @@ exports.getAttractionById = async (req, res) => {
   }
 };
 
+// === USER RECOMMENDATION ===
+
 exports.submitRecommendation = async (req, res) => {
   try {
     const { name, description, lat, lng, address, category } = req.body;
@@ -122,21 +124,39 @@ exports.rejectRecommendation = async (req, res) => {
   }
 };
 
-// FITUR BARU: HAPUS ATRAKSI
+// Hapus Data
 exports.deleteAttraction = async (req, res) => {
   try {
     const { id } = req.params;
-    // Asumsi di Model ada method delete. Jika belum, pakai query raw di sini juga bisa:
-    // await require('../config/db').query('DELETE FROM attractions WHERE id = $1', [id]);
-    
-    // Tapi sebaiknya pakai Model wrapper:
     await Attraction.delete(id); 
-    
     res.json({ status: 'success', message: 'Data berhasil dihapus permanen.' });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-exports.createAttraction = async (req, res) => { res.json({message: "Use recommendation flow"}) };
+// FITUR BARU: CREATE (ADD) DIRECTLY
+exports.createAttraction = async (req, res) => {
+  try {
+    const { name, description, lat, lng, address, category } = req.body;
+    
+    if (!name || !lat || !lng || !category) {
+      return res.status(400).json({ status: 'error', message: 'Data wajib diisi (Nama, Lokasi, Kategori)' });
+    }
+
+    const newAttraction = await Attraction.create({
+      name, description, lat, lng, address, category,
+      submitted_by: req.user.id
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Tempat wisata berhasil ditambahkan!',
+      data: newAttraction
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
 exports.updateAttraction = async (req, res) => { res.json({message: "Not implemented"}) };
